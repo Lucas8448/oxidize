@@ -1,2 +1,2 @@
 pub mod window;
-pub mod dimensions;
+pub mod camera;

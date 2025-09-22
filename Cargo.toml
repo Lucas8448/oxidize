@@ -3,5 +3,7 @@ name = "oxidize"
 version = "0.1.0"
 edition = "2018"
 
-[dependencies.glfw]
-version = "*"
+[dependencies]
+glfw = "0.54"
+gl = "0.14"
+glam = "0.27"
