@@ -1,25 +1,48 @@
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec3, Vec4};
 
 pub struct Camera {
     pub position: Vec3,
-    pub yaw: f32,   // rotation around Y axis
-    pub pitch: f32, // rotation around X axis
+    pub yaw: f32,
+    pub pitch: f32,
     pub fov_y: f32,
     pub aspect: f32,
     pub z_near: f32,
     pub z_far: f32,
 }
 
+#[derive(Debug)]
+pub struct Frustum {
+    pub planes: [Vec4; 6],
+}
+
+impl Frustum {
+    pub fn contains_aabb(&self, min: Vec3, max: Vec3) -> bool {
+        for plane in &self.planes {
+            let n = plane.truncate();
+            let d = plane.w;
+            let positive_vertex = Vec3::new(
+                if n.x >= 0.0 { max.x } else { min.x },
+                if n.y >= 0.0 { max.y } else { min.y },
+                if n.z >= 0.0 { max.z } else { min.z },
+            );
+            if n.dot(positive_vertex) + d < 0.0 {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 impl Camera {
     pub fn new(aspect: f32) -> Self {
         Self {
-            position: Vec3::new(0.0, 0.0, 3.0),
-            yaw: -90.0f32.to_radians(), // facing -Z
+            position: Vec3::new(0.0, 45.0, 0.0),
+            yaw: -90.0f32.to_radians(),
             pitch: 0.0,
             fov_y: 60.0f32.to_radians(),
             aspect,
             z_near: 0.1,
-            z_far: 100.0,
+            z_far: 500.0,
         }
     }
 
@@ -41,6 +64,18 @@ impl Camera {
 
     pub fn right(&self) -> Vec3 { self.front().cross(Vec3::Y).normalize() }
     pub fn up(&self) -> Vec3 { self.right().cross(self.front()).normalize() }
+
+    pub fn frustum(&self) -> Frustum {
+        let view_proj = self.projection_matrix() * self.view_matrix();
+        let m = view_proj.to_cols_array();
+        let left   = Vec4::new(m[3] + m[0], m[7] + m[4], m[11] + m[8], m[15] + m[12]).normalize();
+        let right  = Vec4::new(m[3] - m[0], m[7] - m[4], m[11] - m[8], m[15] - m[12]).normalize();
+        let bottom = Vec4::new(m[3] + m[1], m[7] + m[5], m[11] + m[9], m[15] + m[13]).normalize();
+        let top    = Vec4::new(m[3] - m[1], m[7] - m[5], m[11] - m[9], m[15] - m[13]).normalize();
+        let near   = Vec4::new(m[3] + m[2], m[7] + m[6], m[11] + m[10], m[15] + m[14]).normalize();
+        let far    = Vec4::new(m[3] - m[2], m[7] - m[6], m[11] - m[10], m[15] - m[14]).normalize();
+        Frustum { planes: [left, right, bottom, top, near, far] }
+    }
 
     pub fn process_keyboard(&mut self, direction: CameraMove, delta: f32) {
         let speed = 2.5 * delta;
