@@ -1,5 +1,5 @@
-pub const DEFAULT_WINDOW_WIDTH: u32 = 800;
-pub const DEFAULT_WINDOW_HEIGHT: u32 = 600;
+pub const DEFAULT_WINDOW_WIDTH: u32 = 1600; 
+pub const DEFAULT_WINDOW_HEIGHT: u32 = 1200;
 
 pub const CLEAR_COLOR: (f32, f32, f32, f32) = (0.4, 0.6, 0.9, 1.0);
 
