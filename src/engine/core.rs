@@ -37,9 +37,10 @@ impl Engine {
         window.set_cursor_mode(glfw::CursorMode::Disabled);
 
         gl::load_with(|s| window.get_proc_address(s) as *const _);
+        let (fb_w, fb_h) = window.get_framebuffer_size();
         unsafe {
             gl::Enable(gl::DEPTH_TEST);
-            gl::Viewport(0, 0, width as i32, height as i32);
+            gl::Viewport(0, 0, fb_w, fb_h);
         }
 
         Engine {
@@ -47,7 +48,7 @@ impl Engine {
             window,
             events,
             should_close: false,
-            camera: Camera::new(width as f32 / height as f32),
+            camera: Camera::new(fb_w as f32 / fb_h as f32),
             time: 0.0,
             frame: 0,
             input: InputState::default(),

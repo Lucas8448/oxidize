@@ -21,7 +21,7 @@ in vec3 vWorldPos;
 in vec3 vNormal;
 out vec4 FragColor;
 const vec3 LIGHT_DIR = normalize(vec3(0.4, -1.0, 0.3));
-const vec3 LIGHT_COLOR = vec3(1.0, 0.97, 0.9));
+const vec3 LIGHT_COLOR = vec3(1.0, 0.97, 0.9);
 const float AMBIENT = 0.35;
 float edge_factor(float f) {
     float dist = min(min(f, 1.0 - f), 0.5);
