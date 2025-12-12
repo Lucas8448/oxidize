@@ -4,6 +4,7 @@ use std::time::Instant;
 use crate::engine::camera::Camera;
 use crate::engine::input::InputState;
 use crate::engine::game::Game;
+use crate::engine::constants::CLEAR_COLOR;
 
 pub struct Engine {
     pub glfw: glfw::Glfw,
@@ -40,6 +41,9 @@ impl Engine {
         let (fb_w, fb_h) = window.get_framebuffer_size();
         unsafe {
             gl::Enable(gl::DEPTH_TEST);
+            gl::Enable(gl::CULL_FACE);
+            gl::CullFace(gl::BACK);
+            gl::FrontFace(gl::CCW);
             gl::Viewport(0, 0, fb_w, fb_h);
         }
 
@@ -76,7 +80,7 @@ impl Engine {
             game.update(self, dt);
 
             unsafe {
-                gl::ClearColor(0.4, 0.6, 0.9, 1.0);
+                gl::ClearColor(CLEAR_COLOR.0, CLEAR_COLOR.1, CLEAR_COLOR.2, CLEAR_COLOR.3);
                 gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
             }
 

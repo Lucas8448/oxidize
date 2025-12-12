@@ -11,10 +11,19 @@ pub const MAX_NEW_CHUNKS_PER_FRAME: usize = 12;
 pub const DEFAULT_RENDER_DISTANCE: i32 = 4;
 
 pub mod noise {
+    pub const SEED: u32 = 0;
     pub const BASE_SCALE: f64 = 0.015;
     pub const OCTAVES: usize = 4;
     pub const PERSISTENCE: f32 = 0.55;
     pub const LACUNARITY: f32 = 2.1;
     pub const MAX_HEIGHT: f32 = 38.0;
     pub const HEIGHT_EXPONENT: f32 = 1.2;
+    pub const DIRT_DEPTH: usize = 3;
+}
+
+pub mod blocks {
+    pub const GRASS: u8 = 1;
+    pub const DIRT: u8 = 2;
+    pub const STONE: u8 = 3;
+    pub const BEDROCK: u8 = 4;
 }

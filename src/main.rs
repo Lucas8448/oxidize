@@ -12,6 +12,12 @@ pub struct DemoGame {
     world: World,
 }
 
+impl Default for DemoGame {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DemoGame {
     pub fn new() -> Self {
         Self { shader: None, world: World::new() }

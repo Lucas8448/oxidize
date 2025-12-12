@@ -16,10 +16,11 @@ impl ShaderProgram {
         let mut success = 0;
         gl::GetProgramiv(program, gl::LINK_STATUS, &mut success);
         if success == 0 {
-            let mut len = 0; gl::GetProgramiv(program, gl::INFO_LOG_LENGTH, &mut len);
-            let mut buf = Vec::with_capacity(len as usize);
-            buf.set_len((len as usize).saturating_sub(1));
+            let mut len = 0;
+            gl::GetProgramiv(program, gl::INFO_LOG_LENGTH, &mut len);
+            let mut buf = vec![0u8; len as usize];
             gl::GetProgramInfoLog(program, len, ptr::null_mut(), buf.as_mut_ptr() as *mut _);
+            buf.truncate(buf.iter().position(|&c| c == 0).unwrap_or(buf.len()));
             return Err(String::from_utf8_lossy(&buf).to_string());
         }
         Ok(Self { id: program })
@@ -44,10 +45,11 @@ unsafe fn compile_shader(src: &str, ty: GLenum) -> Result<u32, String> {
     let mut success = 0;
     gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut success);
     if success == 0 {
-        let mut len = 0; gl::GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut len);
-        let mut buf = Vec::with_capacity(len as usize);
-        buf.set_len((len as usize).saturating_sub(1));
+        let mut len = 0;
+        gl::GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut len);
+        let mut buf = vec![0u8; len as usize];
         gl::GetShaderInfoLog(shader, len, ptr::null_mut(), buf.as_mut_ptr() as *mut _);
+        buf.truncate(buf.iter().position(|&c| c == 0).unwrap_or(buf.len()));
         return Err(String::from_utf8_lossy(&buf).to_string());
     }
     Ok(shader)

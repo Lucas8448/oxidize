@@ -1,4 +1,5 @@
 use glam::{Mat4, Vec3, Vec4};
+use crate::engine::constants::{CAMERA_FOV_Y_DEGREES, CAMERA_Z_NEAR, CAMERA_Z_FAR};
 
 pub struct Camera {
     pub position: Vec3,
@@ -39,10 +40,10 @@ impl Camera {
             position: Vec3::new(0.0, 45.0, 0.0),
             yaw: -90.0f32.to_radians(),
             pitch: 0.0,
-            fov_y: 60.0f32.to_radians(),
+            fov_y: CAMERA_FOV_Y_DEGREES.to_radians(),
             aspect,
-            z_near: 0.1,
-            z_far: 500.0,
+            z_near: CAMERA_Z_NEAR,
+            z_far: CAMERA_Z_FAR,
         }
     }
 
@@ -63,6 +64,8 @@ impl Camera {
     }
 
     pub fn right(&self) -> Vec3 { self.front().cross(Vec3::Y).normalize() }
+
+    #[allow(dead_code)]
     pub fn up(&self) -> Vec3 { self.right().cross(self.front()).normalize() }
 
     pub fn frustum(&self) -> Frustum {
@@ -101,6 +104,14 @@ impl Camera {
 
 pub enum CameraMove { Forward, Backward, Left, Right, Up, Down }
 
-pub struct CameraUniform { pub view_proj: Mat4 }
+#[allow(dead_code)]
+pub struct CameraUniform {
+    pub view_proj: Mat4,
+}
 
-impl CameraUniform { pub fn new(cam: &Camera) -> Self { Self { view_proj: cam.projection_matrix() * cam.view_matrix() } } }
+#[allow(dead_code)]
+impl CameraUniform {
+    pub fn new(cam: &Camera) -> Self {
+        Self { view_proj: cam.projection_matrix() * cam.view_matrix() }
+    }
+}

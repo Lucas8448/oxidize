@@ -6,14 +6,12 @@ pub struct InputState {
     keys: HashMap<Key, KeyState>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct KeyState {
     pub down: bool,
     pub pressed: bool,
     pub released: bool,
 }
-
-impl Default for KeyState { fn default() -> Self { Self { down: false, pressed: false, released: false } } }
 
 impl InputState {
     pub fn begin_frame(&mut self) {
@@ -35,5 +33,7 @@ impl InputState {
     }
     pub fn is_key_down(&self, key: Key) -> bool { self.keys.get(&key).map(|s| s.down).unwrap_or(false) }
     pub fn was_key_pressed(&self, key: Key) -> bool { self.keys.get(&key).map(|s| s.pressed).unwrap_or(false) }
+
+    #[allow(dead_code)]
     pub fn was_key_released(&self, key: Key) -> bool { self.keys.get(&key).map(|s| s.released).unwrap_or(false) }
 }

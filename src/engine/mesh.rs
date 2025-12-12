@@ -6,7 +6,7 @@ pub struct Mesh { pub vao: u32, vbo: u32, count: i32 }
 
 impl Mesh {
     pub fn from_vertices(vertices: &[f32]) -> Self {
-        assert!(vertices.len() % 9 == 0, "vertex slice must be multiple of 9 (pos3+normal3+color3)");
+        assert!(vertices.len().is_multiple_of(9), "vertex slice must be multiple of 9 (pos3+normal3+color3)");
         unsafe {
             let (mut vbo, mut vao) = (0, 0);
             gl::GenVertexArrays(1, &mut vao);
@@ -15,7 +15,7 @@ impl Mesh {
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (vertices.len() * mem::size_of::<f32>()) as isize,
+                mem::size_of_val(vertices) as isize,
                 vertices.as_ptr() as *const _,
                 gl::STATIC_DRAW,
             );
