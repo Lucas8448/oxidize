@@ -14,6 +14,7 @@ pub const CAMERA_Z_FAR: f32 = 500.0;
 pub const MAX_NEW_CHUNKS_PER_FRAME: usize = 12;
 pub const DEFAULT_RENDER_DISTANCE: i32 = 4;
 
+/// Terrain generation noise parameters
 pub mod noise {
     pub const SEED: u32 = 0;
     pub const BASE_SCALE: f64 = 0.015;
@@ -25,6 +26,7 @@ pub mod noise {
     pub const DIRT_DEPTH: usize = 3;
 }
 
+/// Block type identifiers
 pub mod blocks {
     pub const GRASS: u8 = 1;
     pub const DIRT: u8 = 2;
