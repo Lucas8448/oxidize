@@ -1,6 +1,7 @@
 use glam::{Mat4, Vec3, Vec4};
 use crate::engine::constants::{CAMERA_FOV_Y_DEGREES, CAMERA_Z_NEAR, CAMERA_Z_FAR};
 
+/// First-person camera with position and orientation.
 pub struct Camera {
     pub position: Vec3,
     pub yaw: f32,
@@ -11,6 +12,7 @@ pub struct Camera {
     pub z_far: f32,
 }
 
+/// View frustum planes for culling.
 #[derive(Debug)]
 pub struct Frustum {
     pub planes: [Vec4; 6],
