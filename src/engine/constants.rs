@@ -15,7 +15,7 @@ pub const CAMERA_MOUSE_SENSITIVITY: f32 = 0.0025;
 
 /// Chunk loading settings
 pub const MAX_NEW_CHUNKS_PER_FRAME: usize = 12;
-pub const DEFAULT_RENDER_DISTANCE: i32 = 4;
+pub const DEFAULT_RENDER_DISTANCE: i32 = 6;
 
 /// Terrain generation noise parameters
 pub mod noise {
