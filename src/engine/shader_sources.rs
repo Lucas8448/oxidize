@@ -21,9 +21,9 @@ in vec3 vWorldPos;
 in vec3 vNormal;
 out vec4 FragColor;
 uniform vec3 uCameraPos;
-const vec3 LIGHT_DIR = normalize(vec3(0.5, -1.0, 0.3));
-const vec3 LIGHT_COLOR = vec3(1.0, 0.98, 0.95);
-const float AMBIENT = 0.5;
+const vec3 LIGHT_DIR = normalize(vec3(0.4, -0.8, 0.4));
+const vec3 LIGHT_COLOR = vec3(1.0, 0.98, 0.92);
+const float AMBIENT = 0.45;
 float edge_factor(float f) {
     float dist = min(min(f, 1.0 - f), 0.5);
     return smoothstep(0.0, 0.06, dist);
