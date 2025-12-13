@@ -31,7 +31,7 @@ impl Chunk {
 
     pub fn rebuild_mesh<F: Fn(i32, i32, i32) -> Block>(&mut self, neighbor_block: F) {
         if !self.dirty { return; }
-    let mut vertices: Vec<f32> = Vec::with_capacity(16 * 1024);
+        let mut vertices: Vec<f32> = Vec::with_capacity(16 * 1024);
         let directions = [
             (-1, 0, 0, 1.0,  [ -1.0,  0.0,  0.0 ]),
             ( 1, 0, 0, 1.0,  [  1.0,  0.0,  0.0 ]),
