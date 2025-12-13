@@ -1,6 +1,9 @@
+/// Represents a block in the voxel world.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Block {
+    /// Empty space
     Air,
+    /// A solid block with a type ID
     Solid(u8),
 }
 
