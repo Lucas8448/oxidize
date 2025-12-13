@@ -6,6 +6,12 @@ use std::ptr;
 pub struct Mesh { pub vao: u32, vbo: u32, count: i32 }
 
 impl Mesh {
+    /// Returns the number of vertices in this mesh.
+    #[allow(dead_code)]
+    pub fn vertex_count(&self) -> i32 {
+        self.count
+    }
+
     pub fn from_vertices(vertices: &[f32]) -> Self {
         assert!(vertices.len().is_multiple_of(9), "vertex slice must be multiple of 9 (pos3+normal3+color3)");
         unsafe {
