@@ -27,6 +27,7 @@ pub mod noise {
 }
 
 /// Block type identifiers
+#[allow(dead_code)]
 pub mod blocks {
     pub const GRASS: u8 = 1;
     pub const DIRT: u8 = 2;
