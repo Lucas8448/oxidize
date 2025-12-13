@@ -32,6 +32,11 @@ impl World {
         self.render_distance = radius.max(1);
     }
 
+    #[allow(dead_code)]
+    pub fn get_render_distance(&self) -> i32 {
+        self.render_distance
+    }
+
     /// Returns the number of loaded chunks.
     #[allow(dead_code)]
     pub fn chunk_count(&self) -> usize {
