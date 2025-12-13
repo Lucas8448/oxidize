@@ -35,7 +35,7 @@ void main() {
     float diff = max(dot(normalize(vNormal), -LIGHT_DIR), 0.0);
     vec3 lit = base * (LIGHT_COLOR * (AMBIENT + diff * 0.6));
     float dist = length(vWorldPos - uCameraPos);
-    float fog = clamp((dist - 60.0) / 80.0, 0.0, 1.0);
+    float fog = clamp((dist - 100.0) / 120.0, 0.0, 1.0);
     vec3 fogColor = vec3(0.6, 0.75, 0.95);
     vec3 finalColor = mix(lit, fogColor, fog * 0.6);
     FragColor = vec4(finalColor, 1.0);
