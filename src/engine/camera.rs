@@ -19,6 +19,7 @@ pub struct Frustum {
 }
 
 impl Frustum {
+    /// Checks if an axis-aligned bounding box is inside or intersects the frustum.
     pub fn contains_aabb(&self, min: Vec3, max: Vec3) -> bool {
         for plane in &self.planes {
             let n = plane.truncate();
