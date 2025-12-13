@@ -101,7 +101,13 @@ impl Chunk {
                                         }
                                     }
                                     blocks::DIRT => (0.55, 0.38, 0.25),
-                                    blocks::STONE => (0.62, 0.60, 0.58),
+                                    blocks::STONE => {
+                                        // Subtle variation for stone
+                                        let world_y = self.pos.y * CHUNK_SIZE as i32 + sample[1];
+                                        let var = ((world_x.wrapping_mul(1664525) ^ world_z.wrapping_mul(1013904223) ^ world_y.wrapping_mul(214013)) & 0xFF) as f32 / 255.0;
+                                        let offset = (var - 0.5) * 0.06;
+                                        (0.62 + offset, 0.60 + offset, 0.58 + offset)
+                                    }
                                     blocks::BEDROCK => (0.15, 0.15, 0.18),
                                     _ => (1.0, 0.0, 1.0), // debug magenta
                                 }; [r as f32 * shade_factor, g as f32 * shade_factor, b as f32 * shade_factor]
