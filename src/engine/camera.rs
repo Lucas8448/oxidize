@@ -84,7 +84,7 @@ impl Camera {
     }
 
     pub fn process_keyboard(&mut self, direction: CameraMove, delta: f32) {
-        let speed = 2.5 * delta;
+        let speed = 8.0 * delta;
         match direction {
             CameraMove::Forward => self.position += self.front() * speed,
             CameraMove::Backward => self.position -= self.front() * speed,
