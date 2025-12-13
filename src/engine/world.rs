@@ -5,6 +5,7 @@ use crate::engine::camera::Camera;
 use crate::engine::constants::{MAX_NEW_CHUNKS_PER_FRAME, DEFAULT_RENDER_DISTANCE};
 use crate::engine::constants::{noise, blocks};
 
+/// Manages the voxel world, including chunk loading and terrain generation.
 pub struct World {
     pub chunks: HashMap<(i32, i32, i32), Chunk>,
     pub render_distance: i32,
