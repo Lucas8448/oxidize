@@ -31,6 +31,11 @@ impl ShaderProgram {
         let loc = gl::GetUniformLocation(self.id, cname.as_ptr());
         gl::UniformMatrix4fv(loc, 1, gl::FALSE, mat.to_cols_array().as_ptr());
     }
+    pub unsafe fn set_vec3(&self, name: &str, v: &glam::Vec3) {
+        let cname = std::ffi::CString::new(name).unwrap();
+        let loc = gl::GetUniformLocation(self.id, cname.as_ptr());
+        gl::Uniform3f(loc, v.x, v.y, v.z);
+    }
 }
 
 impl Drop for ShaderProgram {

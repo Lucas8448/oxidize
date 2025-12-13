@@ -41,6 +41,7 @@ impl Game for DemoGame {
             if let Some(shader) = &self.shader {
                 shader.use_program();
                 shader.set_mat4("uViewProj", &cam_uni);
+                shader.set_vec3("uCameraPos", &engine.camera.position);
                 self.world.render_chunks(&engine.camera, shader);
             }            
         }
