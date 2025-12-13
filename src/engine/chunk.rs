@@ -7,9 +7,11 @@ pub const CHUNK_SIZE: usize = 32;
 #[inline(always)]
 fn index(x: usize, y: usize, z: usize) -> usize { (y * CHUNK_SIZE * CHUNK_SIZE) + (z * CHUNK_SIZE) + x }
 
+/// Position of a chunk in chunk coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChunkPos { pub x: i32, pub y: i32, pub z: i32 }
 
+/// A cubic section of the world containing blocks.
 pub struct Chunk {
     pub pos: ChunkPos,
     pub blocks: Vec<Block>,
