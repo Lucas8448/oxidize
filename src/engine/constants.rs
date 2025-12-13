@@ -33,4 +33,5 @@ pub mod blocks {
     pub const STONE: u8 = 3;
     pub const BEDROCK: u8 = 4;
     pub const WATER: u8 = 5;
+    pub const SAND: u8 = 6;
 }
