@@ -31,7 +31,10 @@ impl Chunk {
 
     pub fn rebuild_mesh<F: Fn(i32, i32, i32) -> Block>(&mut self, neighbor_block: F) {
         if !self.dirty { return; }
-        let mut vertices: Vec<f32> = Vec::with_capacity(16 * 1024);
+        // Estimate: worst case ~6 faces per block, 2 triangles per face, 9 floats per vertex
+        // For a typical chunk with ~50% solid, surface area is much less
+        let estimated_verts = CHUNK_SIZE * CHUNK_SIZE * 6 * 2 * 3 * 9;
+        let mut vertices: Vec<f32> = Vec::with_capacity(estimated_verts);
         let directions = [
             (-1, 0, 0, 1.0,  [ -1.0,  0.0,  0.0 ]),
             ( 1, 0, 0, 1.0,  [  1.0,  0.0,  0.0 ]),
