@@ -1,5 +1,5 @@
 use glam::{Mat4, Vec3, Vec4};
-use crate::engine::constants::{CAMERA_FOV_Y_DEGREES, CAMERA_Z_NEAR, CAMERA_Z_FAR};
+use crate::engine::constants::{CAMERA_FOV_Y_DEGREES, CAMERA_Z_NEAR, CAMERA_Z_FAR, CAMERA_MOVE_SPEED, CAMERA_MOUSE_SENSITIVITY};
 
 /// First-person camera with position and orientation.
 pub struct Camera {
@@ -84,7 +84,7 @@ impl Camera {
     }
 
     pub fn process_keyboard(&mut self, direction: CameraMove, delta: f32) {
-        let speed = 8.0 * delta;
+        let speed = CAMERA_MOVE_SPEED * delta;
         match direction {
             CameraMove::Forward => self.position += self.front() * speed,
             CameraMove::Backward => self.position -= self.front() * speed,
@@ -96,9 +96,8 @@ impl Camera {
     }
 
     pub fn process_mouse(&mut self, dx: f32, dy: f32) {
-        let sensitivity = 0.0025;
-        self.yaw += dx * sensitivity;
-        self.pitch -= dy * sensitivity;
+        self.yaw += dx * CAMERA_MOUSE_SENSITIVITY;
+        self.pitch -= dy * CAMERA_MOUSE_SENSITIVITY;
         let max_pitch = 89.0f32.to_radians();
         if self.pitch > max_pitch { self.pitch = max_pitch; }
         if self.pitch < -max_pitch { self.pitch = -max_pitch; }

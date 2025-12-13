@@ -9,6 +9,8 @@ pub const CLEAR_COLOR: (f32, f32, f32, f32) = (0.4, 0.6, 0.9, 1.0);
 pub const CAMERA_FOV_Y_DEGREES: f32 = 60.0;
 pub const CAMERA_Z_NEAR: f32 = 0.1;
 pub const CAMERA_Z_FAR: f32 = 500.0;
+pub const CAMERA_MOVE_SPEED: f32 = 8.0;
+pub const CAMERA_MOUSE_SENSITIVITY: f32 = 0.0025;
 
 /// Chunk loading settings
 pub const MAX_NEW_CHUNKS_PER_FRAME: usize = 12;
