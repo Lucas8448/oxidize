@@ -10,6 +10,7 @@ pub const CAMERA_FOV_Y_DEGREES: f32 = 60.0;
 pub const CAMERA_Z_NEAR: f32 = 0.1;
 pub const CAMERA_Z_FAR: f32 = 500.0;
 pub const CAMERA_MOVE_SPEED: f32 = 8.0;
+pub const CAMERA_SPRINT_MULTIPLIER: f32 = 2.5;
 pub const CAMERA_MOUSE_SENSITIVITY: f32 = 0.0025;
 
 /// Chunk loading settings

@@ -4,7 +4,7 @@ use std::time::Instant;
 use crate::engine::camera::Camera;
 use crate::engine::input::InputState;
 use crate::engine::game::Game;
-use crate::engine::constants::CLEAR_COLOR;
+use crate::engine::constants::{CLEAR_COLOR, CAMERA_SPRINT_MULTIPLIER};
 
 pub struct Engine {
     pub glfw: glfw::Glfw,
@@ -117,7 +117,7 @@ impl Engine {
     fn update_input_begin(&mut self) { self.input.begin_frame(); }
 
     fn process_input(&mut self, dt: f32) {
-        let cam_speed_scale = if self.input.is_key_down(Key::LeftShift) { 2.0 } else { 1.0 };
+        let cam_speed_scale = if self.input.is_key_down(Key::LeftShift) { CAMERA_SPRINT_MULTIPLIER } else { 1.0 };
         if self.input.is_key_down(Key::W) { self.camera.process_keyboard(crate::engine::camera::CameraMove::Forward, dt * cam_speed_scale); }
         if self.input.is_key_down(Key::S) { self.camera.process_keyboard(crate::engine::camera::CameraMove::Backward, dt * cam_speed_scale); }
         if self.input.is_key_down(Key::A) { self.camera.process_keyboard(crate::engine::camera::CameraMove::Left, dt * cam_speed_scale); }
