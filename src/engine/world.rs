@@ -32,6 +32,12 @@ impl World {
         self.render_distance = radius.max(1);
     }
 
+    /// Returns the number of loaded chunks.
+    #[allow(dead_code)]
+    pub fn chunk_count(&self) -> usize {
+        self.chunks.len()
+    }
+
     pub fn update_chunks(&mut self, player_pos: glam::Vec3) {
         let player_chunk_x = (player_pos.x / (CHUNK_SIZE as f32)).floor() as i32;
         let player_chunk_z = (player_pos.z / (CHUNK_SIZE as f32)).floor() as i32;
