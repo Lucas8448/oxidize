@@ -80,13 +80,25 @@ impl Chunk {
                         sample[u_axis] = u as i32;
                         sample[v_axis] = v as i32;
                         sample[w_axis] = w;
+                        
+                        // Calculate world position for color variation
+                        let world_x = self.pos.x * CHUNK_SIZE as i32 + sample[0];
+                        let world_z = self.pos.z * CHUNK_SIZE as i32 + sample[2];
+                        
                         // Color based on block id and face direction (simple palette)
                         let color = match block_type {
                             Block::Solid(id) => {
                                 let (r,g,b) = match id {
                                     blocks::GRASS => {
-                                        // Top face bright green, sides earthy
-                                        if dy > 0 { (0.35, 0.75, 0.30) } else { (0.40, 0.55, 0.25) }
+                                        // Top face bright green with subtle variation, sides earthy
+                                        if dy > 0 {
+                                            // Add subtle color variation based on position
+                                            let variation = ((world_x.wrapping_mul(374761393) ^ world_z.wrapping_mul(668265263)) & 0xFF) as f32 / 255.0;
+                                            let var_offset = (variation - 0.5) * 0.08;
+                                            (0.35 + var_offset * 0.5, 0.75 + var_offset, 0.30 - var_offset * 0.3)
+                                        } else { 
+                                            (0.40, 0.55, 0.25) 
+                                        }
                                     }
                                     blocks::DIRT => (0.55, 0.38, 0.25),
                                     blocks::STONE => (0.62, 0.60, 0.58),
