@@ -2,6 +2,7 @@ use gl::types::*;
 use std::mem;
 use std::ptr;
 
+/// GPU mesh with vertex array object and buffer.
 pub struct Mesh { pub vao: u32, vbo: u32, count: i32 }
 
 impl Mesh {
