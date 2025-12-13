@@ -41,11 +41,16 @@ impl Chunk {
             ( 0, 0, 1, 1.0,  [  0.0,  0.0,  1.0 ])
         ];
         
-    for &(dx, dy, dz, shade_factor, normal_vec) in &directions {
+        // Pre-allocate buffers outside loops to reduce allocations
+        let mut mask = vec![None::<Block>; CHUNK_SIZE * CHUNK_SIZE];
+        let mut visited = vec![false; CHUNK_SIZE * CHUNK_SIZE];
+        
+        for &(dx, dy, dz, shade_factor, normal_vec) in &directions {
             let (u_axis, v_axis) = if dx != 0 { (1, 2) } else if dy != 0 { (0, 2) } else { (0, 1) };
             let w_axis = 3 - u_axis - v_axis;
             for w in 0..(CHUNK_SIZE as i32) {
-                let mut mask = vec![None::<Block>; CHUNK_SIZE * CHUNK_SIZE];
+                // Clear buffers instead of reallocating
+                mask.fill(None);
                 for v in 0..CHUNK_SIZE {
                     for u in 0..CHUNK_SIZE {
                         let mut pos = [0i32; 3];
@@ -62,7 +67,7 @@ impl Chunk {
                         }
                     }
                 }
-                let mut visited = vec![false; CHUNK_SIZE * CHUNK_SIZE];
+                visited.fill(false);
                 for v in 0..CHUNK_SIZE {
                     for u in 0..CHUNK_SIZE {
                         let idx = v * CHUNK_SIZE + u;
