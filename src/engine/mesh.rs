@@ -13,7 +13,7 @@ impl Mesh {
     }
 
     pub fn from_vertices(vertices: &[f32]) -> Self {
-        assert!(vertices.len().is_multiple_of(9), "vertex slice must be multiple of 9 (pos3+normal3+color3)");
+        assert!(vertices.len().is_multiple_of(10), "vertex slice must be multiple of 10 (pos3+normal3+color4)");
         unsafe {
             let (mut vbo, mut vao) = (0, 0);
             gl::GenVertexArrays(1, &mut vao);
@@ -26,14 +26,14 @@ impl Mesh {
                 vertices.as_ptr() as *const _,
                 gl::STATIC_DRAW,
             );
-            let stride = (9 * mem::size_of::<f32>()) as GLsizei;
+            let stride = (10 * mem::size_of::<f32>()) as GLsizei;
             gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, stride, ptr::null());
             gl::EnableVertexAttribArray(0);
             gl::VertexAttribPointer(1, 3, gl::FLOAT, gl::FALSE, stride, (3 * mem::size_of::<f32>()) as *const _);
             gl::EnableVertexAttribArray(1);
-            gl::VertexAttribPointer(2, 3, gl::FLOAT, gl::FALSE, stride, (6 * mem::size_of::<f32>()) as *const _);
+            gl::VertexAttribPointer(2, 4, gl::FLOAT, gl::FALSE, stride, (6 * mem::size_of::<f32>()) as *const _);
             gl::EnableVertexAttribArray(2);
-            Mesh { vao, vbo, count: (vertices.len() / 9) as i32 }
+            Mesh { vao, vbo, count: (vertices.len() / 10) as i32 }
         }
     }
 

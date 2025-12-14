@@ -1,10 +1,10 @@
 pub const BLOCK_WORLD_VERT: &str = r#"#version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
-layout (location = 2) in vec3 aColor;
+layout (location = 2) in vec4 aColor;
 uniform mat4 uViewProj;
 uniform mat4 uModel;
-out vec3 vColor;
+out vec4 vColor;
 out vec3 vWorldPos;
 out vec3 vNormal;
 void main() {
@@ -16,7 +16,7 @@ void main() {
 }"#;
 
 pub const BLOCK_WORLD_FRAG: &str = r#"#version 330 core
-in vec3 vColor;
+in vec4 vColor;
 in vec3 vWorldPos;
 in vec3 vNormal;
 out vec4 FragColor;
@@ -31,12 +31,12 @@ float edge_factor(float f) {
 void main() {
     vec3 fracPos = fract(vWorldPos);
     float ef = edge_factor(fracPos.x) * edge_factor(fracPos.y) * edge_factor(fracPos.z);
-    vec3 base = mix(vColor * 0.7, vColor, ef);
+    vec3 base = mix(vColor.rgb * 0.7, vColor.rgb, ef);
     float diff = max(dot(normalize(vNormal), -LIGHT_DIR), 0.0);
     vec3 lit = base * (LIGHT_COLOR * (AMBIENT + diff * 0.6));
     float dist = length(vWorldPos - uCameraPos);
     float fog = clamp((dist - 100.0) / 120.0, 0.0, 1.0);
     vec3 fogColor = vec3(0.6, 0.75, 0.95);
     vec3 finalColor = mix(lit, fogColor, fog * 0.6);
-    FragColor = vec4(finalColor, 1.0);
+    FragColor = vec4(finalColor, vColor.a);
 }"#;

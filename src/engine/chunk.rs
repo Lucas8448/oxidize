@@ -7,6 +7,12 @@ pub const CHUNK_SIZE: usize = 32;
 #[inline(always)]
 fn index(x: usize, y: usize, z: usize) -> usize { (y * CHUNK_SIZE * CHUNK_SIZE) + (z * CHUNK_SIZE) + x }
 
+/// Returns true if the block is transparent (like water)
+#[inline(always)]
+fn is_transparent(block: Block) -> bool {
+    matches!(block, Block::Solid(blocks::WATER))
+}
+
 /// Position of a chunk in chunk coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChunkPos { pub x: i32, pub y: i32, pub z: i32 }
@@ -16,12 +22,13 @@ pub struct Chunk {
     pub pos: ChunkPos,
     pub blocks: Vec<Block>,
     pub mesh: Option<Mesh>,
+    pub transparent_mesh: Option<Mesh>,
     pub dirty: bool,
 }
 
 impl Chunk {
     pub fn new(pos: ChunkPos) -> Self {
-        Self { pos, blocks: vec![Block::Air; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE], mesh: None, dirty: true }
+        Self { pos, blocks: vec![Block::Air; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE], mesh: None, transparent_mesh: None, dirty: true }
     }
 
     pub fn set_block(&mut self, x: usize, y: usize, z: usize, b: Block) {
@@ -31,10 +38,11 @@ impl Chunk {
 
     pub fn rebuild_mesh<F: Fn(i32, i32, i32) -> Block>(&mut self, neighbor_block: F) {
         if !self.dirty { return; }
-        // Estimate: worst case ~6 faces per block, 2 triangles per face, 9 floats per vertex
+        // Estimate: worst case ~6 faces per block, 2 triangles per face, 10 floats per vertex
         // For a typical chunk with ~50% solid, surface area is much less
-        let estimated_verts = CHUNK_SIZE * CHUNK_SIZE * 6 * 2 * 3 * 9;
-        let mut vertices: Vec<f32> = Vec::with_capacity(estimated_verts);
+        let estimated_verts = CHUNK_SIZE * CHUNK_SIZE * 6 * 2 * 3 * 10;
+        let mut opaque_vertices: Vec<f32> = Vec::with_capacity(estimated_verts);
+        let mut transparent_vertices: Vec<f32> = Vec::with_capacity(estimated_verts / 4);
         let directions = [
             (-1, 0, 0, 1.0,  [ -1.0,  0.0,  0.0 ]),
             ( 1, 0, 0, 1.0,  [  1.0,  0.0,  0.0 ]),
@@ -65,7 +73,23 @@ impl Chunk {
                             self.get_block(x as usize, y as usize, z as usize)
                         } else { Block::Air };
                         let neighbor = neighbor_block(x + dx, y + dy, z + dz);
-                        if !current.is_air() && neighbor.is_air() {
+                        
+                        // For transparent blocks (water), show face if neighbor is air OR a different block type
+                        // For opaque blocks, show face if neighbor is air or transparent
+                        let current_transparent = is_transparent(current);
+                        let neighbor_transparent = is_transparent(neighbor);
+                        
+                        let should_show = if current.is_air() {
+                            false
+                        } else if current_transparent {
+                            // Transparent block: show face if neighbor is air (not if neighbor is same transparent type)
+                            neighbor.is_air()
+                        } else {
+                            // Opaque block: show face if neighbor is air or transparent
+                            neighbor.is_air() || neighbor_transparent
+                        };
+                        
+                        if should_show {
                             mask[v * CHUNK_SIZE + u] = Some(current);
                         }
                     }
@@ -76,6 +100,7 @@ impl Chunk {
                         let idx = v * CHUNK_SIZE + u;
                         if visited[idx] || mask[idx].is_none() { continue; }
                         let block_type = mask[idx].unwrap();
+                        let block_transparent = is_transparent(block_type);
                         let mut sample = [0i32;3];
                         sample[u_axis] = u as i32;
                         sample[v_axis] = v as i32;
@@ -86,47 +111,48 @@ impl Chunk {
                         let world_z = self.pos.z * CHUNK_SIZE as i32 + sample[2];
                         
                         // Color based on block id and face direction (simple palette)
+                        // Now returns (r, g, b, a) for alpha support
                         let color = match block_type {
                             Block::Solid(id) => {
-                                let (r,g,b) = match id {
+                                let (r,g,b,a) = match id {
                                     blocks::GRASS => {
                                         // Top face bright green with subtle variation, sides earthy
                                         if dy > 0 {
                                             // Add subtle color variation based on position
                                             let variation = ((world_x.wrapping_mul(374761393) ^ world_z.wrapping_mul(668265263)) & 0xFF) as f32 / 255.0;
                                             let var_offset = (variation - 0.5) * 0.08;
-                                            (0.35 + var_offset * 0.5, 0.75 + var_offset, 0.30 - var_offset * 0.3)
+                                            (0.35 + var_offset * 0.5, 0.75 + var_offset, 0.30 - var_offset * 0.3, 1.0)
                                         } else { 
-                                            (0.40, 0.55, 0.25) 
+                                            (0.40, 0.55, 0.25, 1.0) 
                                         }
                                     }
-                                    blocks::DIRT => (0.55, 0.38, 0.25),
+                                    blocks::DIRT => (0.55, 0.38, 0.25, 1.0),
                                     blocks::STONE => {
                                         // Subtle variation for stone
                                         let world_y = self.pos.y * CHUNK_SIZE as i32 + sample[1];
                                         let var = ((world_x.wrapping_mul(1664525) ^ world_z.wrapping_mul(1013904223) ^ world_y.wrapping_mul(214013)) & 0xFF) as f32 / 255.0;
                                         let offset = (var - 0.5) * 0.06;
-                                        (0.62 + offset, 0.60 + offset, 0.58 + offset)
+                                        (0.62 + offset, 0.60 + offset, 0.58 + offset, 1.0)
                                     }
-                                    blocks::BEDROCK => (0.15, 0.15, 0.18),
+                                    blocks::BEDROCK => (0.15, 0.15, 0.18, 1.0),
                                     blocks::WATER => {
-                                        // Blue water with slight variation
+                                        // Blue water with slight variation - semi-transparent
                                         let var = ((world_x.wrapping_mul(12345) ^ world_z.wrapping_mul(67890)) & 0xFF) as f32 / 255.0;
                                         let offset = (var - 0.5) * 0.05;
-                                        (0.2 + offset, 0.4 + offset, 0.8 + offset * 0.5)
+                                        (0.2 + offset, 0.5 + offset, 0.9 + offset * 0.5, 0.6)
                                     }
                                     blocks::SAND => {
                                         // Sandy yellow/tan with variation
                                         let var = ((world_x.wrapping_mul(98765) ^ world_z.wrapping_mul(43210)) & 0xFF) as f32 / 255.0;
                                         let offset = (var - 0.5) * 0.08;
-                                        (0.85 + offset, 0.75 + offset, 0.55 + offset * 0.5)
+                                        (0.85 + offset, 0.75 + offset, 0.55 + offset * 0.5, 1.0)
                                     }
-                                    _ => (1.0, 0.0, 1.0), // debug magenta
-                                }; [r as f32 * shade_factor, g as f32 * shade_factor, b as f32 * shade_factor]
+                                    _ => (1.0, 0.0, 1.0, 1.0), // debug magenta
+                                }; [r as f32 * shade_factor, g as f32 * shade_factor, b as f32 * shade_factor, a]
                             }
-                            Block::Air => [0.0, 0.0, 0.0],
+                            Block::Air => [0.0, 0.0, 0.0, 0.0],
                         };
-                        let (c1, c2, c3) = (color[0], color[1], color[2]);
+                        let (c1, c2, c3, c4) = (color[0], color[1], color[2], color[3]);
                         let mut width = 1;
                         while u + width < CHUNK_SIZE {
                             let next_idx = v * CHUNK_SIZE + (u + width);
@@ -161,12 +187,15 @@ impl Chunk {
                             if dy > 0 { corner[1] += 1.0; }
                             if dz > 0 { corner[2] += 1.0; }
                         }
-                        // c1,c2,c3 already defined
+                        
+                        // Choose which vertex buffer to use
+                        let vertices = if block_transparent { &mut transparent_vertices } else { &mut opaque_vertices };
+                        
                         let (nx, ny, nz) = (normal_vec[0], normal_vec[1], normal_vec[2]);
                         let emit_triangle = |v: &mut Vec<f32>, a: [f32;3], b: [f32;3], c: [f32;3], nx: f32, ny: f32, nz: f32| {
-                            v.extend_from_slice(&[a[0],a[1],a[2], nx,ny,nz, c1,c2,c3]);
-                            v.extend_from_slice(&[b[0],b[1],b[2], nx,ny,nz, c1,c2,c3]);
-                            v.extend_from_slice(&[c[0],c[1],c[2], nx,ny,nz, c1,c2,c3]);
+                            v.extend_from_slice(&[a[0],a[1],a[2], nx,ny,nz, c1,c2,c3,c4]);
+                            v.extend_from_slice(&[b[0],b[1],b[2], nx,ny,nz, c1,c2,c3,c4]);
+                            v.extend_from_slice(&[c[0],c[1],c[2], nx,ny,nz, c1,c2,c3,c4]);
                         };
                         // Determine winding order based on face direction
                         // For CCW front-facing triangles with GL_BACK culling:
@@ -174,17 +203,18 @@ impl Chunk {
                         // Negative X, positive Y, negative Z need the opposite
                         let flip = dx < 0 || dy > 0 || dz < 0;
                         if flip {
-                            emit_triangle(&mut vertices, corners[0], corners[2], corners[1], nx,ny,nz);
-                            emit_triangle(&mut vertices, corners[0], corners[3], corners[2], nx,ny,nz);
+                            emit_triangle(vertices, corners[0], corners[2], corners[1], nx,ny,nz);
+                            emit_triangle(vertices, corners[0], corners[3], corners[2], nx,ny,nz);
                         } else {
-                            emit_triangle(&mut vertices, corners[0], corners[1], corners[2], nx,ny,nz);
-                            emit_triangle(&mut vertices, corners[0], corners[2], corners[3], nx,ny,nz);
+                            emit_triangle(vertices, corners[0], corners[1], corners[2], nx,ny,nz);
+                            emit_triangle(vertices, corners[0], corners[2], corners[3], nx,ny,nz);
                         }
                     }
                 }
             }
         }
-        self.mesh = if vertices.is_empty() { None } else { Some(Mesh::from_vertices(&vertices)) };
+        self.mesh = if opaque_vertices.is_empty() { None } else { Some(Mesh::from_vertices(&opaque_vertices)) };
+        self.transparent_mesh = if transparent_vertices.is_empty() { None } else { Some(Mesh::from_vertices(&transparent_vertices)) };
         self.dirty = false;
     }
 }

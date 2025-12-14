@@ -283,26 +283,36 @@ impl World {
         let chunk_size_f = CHUNK_SIZE as f32;
         let cam_pos = camera.position;
         
-        // Collect visible chunks with distances for front-to-back sorting
-        let mut visible: Vec<_> = self.chunks.iter()
-            .filter_map(|((cx, cy, cz), chunk)| {
-                chunk.mesh.as_ref().map(|mesh| {
-                    let chunk_center = glam::vec3(
-                        *cx as f32 * chunk_size_f + chunk_size_f * 0.5,
-                        *cy as f32 * chunk_size_f + chunk_size_f * 0.5,
-                        *cz as f32 * chunk_size_f + chunk_size_f * 0.5,
-                    );
-                    let dist_sq = (chunk_center - cam_pos).length_squared();
-                    (*cx, *cy, *cz, mesh, dist_sq)
-                })
-            })
-            .collect();
+        // Collect visible chunks with distances for sorting
+        // We need both opaque (front-to-back) and transparent (back-to-front) meshes
+        let mut opaque_visible: Vec<_> = Vec::new();
+        let mut transparent_visible: Vec<_> = Vec::new();
         
-        // Sort front-to-back to improve depth test efficiency
-        visible.sort_by(|a, b| a.4.partial_cmp(&b.4).unwrap_or(std::cmp::Ordering::Equal));
+        for ((cx, cy, cz), chunk) in self.chunks.iter() {
+            let chunk_center = glam::vec3(
+                *cx as f32 * chunk_size_f + chunk_size_f * 0.5,
+                *cy as f32 * chunk_size_f + chunk_size_f * 0.5,
+                *cz as f32 * chunk_size_f + chunk_size_f * 0.5,
+            );
+            let dist_sq = (chunk_center - cam_pos).length_squared();
+            
+            if let Some(mesh) = chunk.mesh.as_ref() {
+                opaque_visible.push((*cx, *cy, *cz, mesh, dist_sq));
+            }
+            if let Some(mesh) = chunk.transparent_mesh.as_ref() {
+                transparent_visible.push((*cx, *cy, *cz, mesh, dist_sq));
+            }
+        }
+        
+        // Sort opaque front-to-back to improve depth test efficiency
+        opaque_visible.sort_by(|a, b| a.4.partial_cmp(&b.4).unwrap_or(std::cmp::Ordering::Equal));
+        
+        // Sort transparent back-to-front for correct alpha blending
+        transparent_visible.sort_by(|a, b| b.4.partial_cmp(&a.4).unwrap_or(std::cmp::Ordering::Equal));
         
         unsafe {
-            for (cx, cy, cz, mesh, _) in visible {
+            // Pass 1: Render opaque geometry
+            for (cx, cy, cz, mesh, _) in opaque_visible {
                 let chunk_world_pos = glam::vec3(cx as f32 * chunk_size_f, cy as f32 * chunk_size_f, cz as f32 * chunk_size_f);
                 let min = chunk_world_pos;
                 let max = chunk_world_pos + glam::vec3(chunk_size_f, chunk_size_f, chunk_size_f);
@@ -311,6 +321,27 @@ impl World {
                 let model = glam::Mat4::from_translation(chunk_world_pos);
                 shader.set_mat4("uModel", &model);
                 mesh.draw();
+            }
+            
+            // Pass 2: Render transparent geometry with blending
+            if !transparent_visible.is_empty() {
+                gl::Enable(gl::BLEND);
+                gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+                gl::DepthMask(gl::FALSE); // Don't write to depth buffer for transparent objects
+                
+                for (cx, cy, cz, mesh, _) in transparent_visible {
+                    let chunk_world_pos = glam::vec3(cx as f32 * chunk_size_f, cy as f32 * chunk_size_f, cz as f32 * chunk_size_f);
+                    let min = chunk_world_pos;
+                    let max = chunk_world_pos + glam::vec3(chunk_size_f, chunk_size_f, chunk_size_f);
+                    if !frustum.contains_aabb(min, max) { continue; }
+                    
+                    let model = glam::Mat4::from_translation(chunk_world_pos);
+                    shader.set_mat4("uModel", &model);
+                    mesh.draw();
+                }
+                
+                gl::DepthMask(gl::TRUE);
+                gl::Disable(gl::BLEND);
             }
         }
     }
