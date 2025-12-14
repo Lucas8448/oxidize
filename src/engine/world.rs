@@ -148,7 +148,8 @@ impl World {
         // Request new chunks (prioritize by distance to player)
         let mut chunks_to_request: Vec<(i32, i32, i32, i32)> = Vec::new(); // (cx, cy, cz, dist_sq)
         
-        for cy in 0..1 {
+        // Load chunks vertically from y=-1 (underground) to y=4 (up to ~160 blocks high)
+        for cy in -1..=4 {
             for cz in (player_chunk_z - self.render_distance)..=(player_chunk_z + self.render_distance) {
                 for cx in (player_chunk_x - self.render_distance)..=(player_chunk_x + self.render_distance) {
                     let key = (cx, cy, cz);
@@ -198,7 +199,12 @@ impl World {
     /// Generate terrain data on a worker thread (no Chunk creation, just block data)
     fn generate_terrain_data(pos: ChunkPos) -> Vec<Block> {
         use ::noise::{Perlin, NoiseFn};
-        let perlin = Perlin::new(noise::SEED);
+        
+        let terrain_noise = Perlin::new(noise::SEED);
+        let detail_noise = Perlin::new(noise::SEED.wrapping_add(1));
+        let cave_noise = Perlin::new(noise::SEED.wrapping_add(2));
+        let spaghetti1 = Perlin::new(noise::SEED.wrapping_add(3));
+        let spaghetti2 = Perlin::new(noise::SEED.wrapping_add(4));
         
         let mut block_data = vec![Block::Air; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
         let base_global_y = pos.y * CHUNK_SIZE as i32;
@@ -207,69 +213,142 @@ impl World {
             for x in 0..CHUNK_SIZE {
                 let global_x = pos.x * CHUNK_SIZE as i32 + x as i32;
                 let global_z = pos.z * CHUNK_SIZE as i32 + z as i32;
+                let fx = global_x as f64;
+                let fz = global_z as f64;
 
-                let mut frequency = noise::BASE_SCALE;
-                let mut amplitude = 1.0f32;
-                let mut total = 0.0f32;
-                let mut amp_norm = 0.0f32;
-                for _oct in 0..noise::OCTAVES {
-                    let n = perlin.get([
-                        global_x as f64 * frequency,
-                        global_z as f64 * frequency,
-                    ]) as f32;
-                    total += n * amplitude;
-                    amp_norm += amplitude;
-                    amplitude *= noise::PERSISTENCE;
-                    frequency *= noise::LACUNARITY as f64;
+                // Main terrain height using fractal noise
+                let mut height = 0.0;
+                let mut amp = 1.0;
+                let mut freq = noise::TERRAIN_SCALE;
+                let mut max_amp = 0.0;
+                
+                for _ in 0..noise::TERRAIN_OCTAVES {
+                    height += terrain_noise.get([fx * freq, fz * freq]) * amp;
+                    max_amp += amp;
+                    amp *= noise::TERRAIN_PERSISTENCE;
+                    freq *= 2.0;
                 }
-                let normalized = (total / amp_norm * 0.5 + 0.5).clamp(0.0, 1.0);
-                let shaped = normalized.powf(noise::HEIGHT_EXPONENT);
-                let height_world = (shaped * noise::MAX_HEIGHT) as i32;
+                height = height / max_amp; // Normalize to -1 to 1
+                
+                // Add detail noise
+                let detail = detail_noise.get([fx * noise::DETAIL_SCALE, fz * noise::DETAIL_SCALE]);
+                
+                // Calculate final surface height
+                let surface_y = noise::BASE_HEIGHT 
+                    + (height * noise::TERRAIN_HEIGHT) as i32
+                    + (detail * noise::DETAIL_HEIGHT) as i32;
+                
+                // Determine biome based on height
+                let is_beach = surface_y >= noise::SEA_LEVEL - 2 && surface_y <= noise::SEA_LEVEL + 2;
+                let is_underwater = surface_y < noise::SEA_LEVEL;
 
-                // Determine if this is a beach/water area based on height
-                let is_near_water = height_world <= noise::WATER_LEVEL + 2;
-                let is_underwater = height_world < noise::WATER_LEVEL;
-
-                if height_world >= base_global_y {
-                    let local_surface = (height_world - base_global_y).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
-                    for y in 0..=local_surface {
-                        let world_y = base_global_y + y as i32;
-                        let block_id = if y == local_surface {
-                            if is_underwater {
-                                blocks::SAND
-                            } else if is_near_water {
-                                blocks::SAND
-                            } else {
-                                blocks::GRASS
-                            }
-                        } else if local_surface - y <= noise::DIRT_DEPTH {
-                            if is_near_water {
-                                blocks::SAND
-                            } else {
-                                blocks::DIRT
-                            }
-                        } else if world_y <= 2 {
+                // Fill blocks for this column
+                for y in 0..CHUNK_SIZE {
+                    let world_y = base_global_y + y as i32;
+                    let idx = (y * CHUNK_SIZE * CHUNK_SIZE) + (z * CHUNK_SIZE) + x;
+                    
+                    // Above surface
+                    if world_y > surface_y {
+                        if world_y <= noise::SEA_LEVEL {
+                            block_data[idx] = Block::Solid(blocks::WATER);
+                        }
+                        continue;
+                    }
+                    
+                    // At or below surface
+                    let depth = surface_y - world_y;
+                    
+                    let block_id = if world_y == 0 {
+                        // Bottom layer is always bedrock
+                        blocks::BEDROCK
+                    } else if world_y < noise::BEDROCK_LAYERS {
+                        // Bedrock with randomness above y=0
+                        let chance = (noise::BEDROCK_LAYERS - world_y) as f64 / noise::BEDROCK_LAYERS as f64;
+                        if terrain_noise.get([fx * 0.5, world_y as f64, fz * 0.5]) < chance * 2.0 - 1.0 {
                             blocks::BEDROCK
                         } else {
                             blocks::STONE
-                        };
-                        let idx = (y * CHUNK_SIZE * CHUNK_SIZE) + (z * CHUNK_SIZE) + x;
-                        block_data[idx] = Block::Solid(block_id);
-                    }
+                        }
+                    } else if depth == 0 {
+                        // Surface
+                        if is_underwater || is_beach {
+                            blocks::SAND
+                        } else {
+                            blocks::GRASS
+                        }
+                    } else if depth <= noise::DIRT_DEPTH {
+                        // Subsurface
+                        if is_underwater || is_beach {
+                            blocks::SAND
+                        } else {
+                            blocks::DIRT
+                        }
+                    } else {
+                        blocks::STONE
+                    };
+                    
+                    block_data[idx] = Block::Solid(block_id);
                 }
-
-                // Fill water above terrain up to water level
-                let water_start = if height_world >= base_global_y {
-                    (height_world - base_global_y + 1).max(0) as usize
-                } else {
-                    0
-                };
-                let water_end = (noise::WATER_LEVEL - base_global_y).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
-                
-                if water_end >= water_start {
-                    for y in water_start..=water_end {
-                        let idx = (y * CHUNK_SIZE * CHUNK_SIZE) + (z * CHUNK_SIZE) + x;
-                        block_data[idx] = Block::Solid(blocks::WATER);
+            }
+        }
+        
+        // Carve caves
+        for y in 0..CHUNK_SIZE {
+            let world_y = base_global_y + y as i32;
+            if world_y < noise::CAVE_MIN_Y { continue; }
+            
+            for z in 0..CHUNK_SIZE {
+                for x in 0..CHUNK_SIZE {
+                    let idx = (y * CHUNK_SIZE * CHUNK_SIZE) + (z * CHUNK_SIZE) + x;
+                    
+                    // Skip air, water, bedrock only - allow caves to open to surface
+                    match block_data[idx] {
+                        Block::Air => continue,
+                        Block::Solid(id) if id == blocks::WATER || id == blocks::BEDROCK => continue,
+                        _ => {}
+                    }
+                    
+                    let fx = (pos.x * CHUNK_SIZE as i32 + x as i32) as f64;
+                    let fy = world_y as f64;
+                    let fz = (pos.z * CHUNK_SIZE as i32 + z as i32) as f64;
+                    
+                    // Swiss cheese caves (rare large caverns)
+                    let cave = cave_noise.get([
+                        fx * noise::CAVE_SCALE,
+                        fy * noise::CAVE_SCALE * 0.5, // Stretched vertically for taller caves
+                        fz * noise::CAVE_SCALE,
+                    ]);
+                    
+                    // Primary spaghetti tunnels
+                    let s1a = spaghetti1.get([
+                        fx * noise::SPAGHETTI_SCALE,
+                        fy * noise::SPAGHETTI_SCALE,
+                        fz * noise::SPAGHETTI_SCALE,
+                    ]);
+                    let s1b = spaghetti2.get([
+                        fx * noise::SPAGHETTI_SCALE + 500.0,
+                        fy * noise::SPAGHETTI_SCALE,
+                        fz * noise::SPAGHETTI_SCALE + 500.0,
+                    ]);
+                    let is_spaghetti1 = s1a.abs() < noise::SPAGHETTI_THRESHOLD 
+                                     && s1b.abs() < noise::SPAGHETTI_THRESHOLD;
+                    
+                    // Secondary spaghetti tunnels (different scale for connectivity)
+                    let s2a = spaghetti1.get([
+                        fx * noise::SPAGHETTI2_SCALE + 1000.0,
+                        fy * noise::SPAGHETTI2_SCALE,
+                        fz * noise::SPAGHETTI2_SCALE + 1000.0,
+                    ]);
+                    let s2b = spaghetti2.get([
+                        fx * noise::SPAGHETTI2_SCALE + 1500.0,
+                        fy * noise::SPAGHETTI2_SCALE,
+                        fz * noise::SPAGHETTI2_SCALE + 1500.0,
+                    ]);
+                    let is_spaghetti2 = s2a.abs() < noise::SPAGHETTI2_THRESHOLD 
+                                     && s2b.abs() < noise::SPAGHETTI2_THRESHOLD;
+                    
+                    if cave > noise::CAVE_THRESHOLD || is_spaghetti1 || is_spaghetti2 {
+                        block_data[idx] = Block::Air;
                     }
                 }
             }
@@ -277,7 +356,65 @@ impl World {
         
         block_data
     }
+}
 
+/// Sample 2D fractal Perlin noise with multiple octaves
+fn sample_fractal_noise_2d(
+    noise: &::noise::Perlin,
+    x: f64, z: f64,
+    base_scale: f64,
+    octaves: usize,
+    persistence: f64,
+) -> f64 {
+    use ::noise::NoiseFn;
+    
+    let mut total = 0.0;
+    let mut amplitude = 1.0;
+    let mut frequency = base_scale;
+    let mut max_amplitude = 0.0;
+    
+    for _ in 0..octaves {
+        total += noise.get([x * frequency, z * frequency]) * amplitude;
+        max_amplitude += amplitude;
+        amplitude *= persistence;
+        frequency *= 2.0; // Lacunarity
+    }
+    
+    total / max_amplitude
+}
+
+/// Sample 3D fractal Perlin noise with multiple octaves
+fn sample_3d_fractal_noise(
+    noise: &::noise::Perlin,
+    x: f64, y: f64, z: f64,
+    base_scale: f64,
+    octaves: usize,
+    persistence: f64,
+) -> f64 {
+    use ::noise::NoiseFn;
+    
+    let mut total = 0.0;
+    let mut amplitude = 1.0;
+    let mut frequency = base_scale;
+    let mut max_amplitude = 0.0;
+    
+    for _ in 0..octaves {
+        total += noise.get([x * frequency, y * frequency, z * frequency]) * amplitude;
+        max_amplitude += amplitude;
+        amplitude *= persistence;
+        frequency *= 2.0;
+    }
+    
+    total / max_amplitude
+}
+
+/// Smoothstep function for smooth blending (cubic Hermite interpolation)
+fn smoothstep(t: f64) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+impl World {
     pub fn render_chunks(&mut self, camera: &Camera, shader: &crate::engine::shader::ShaderProgram) {
         let frustum = camera.frustum();
         let chunk_size_f = CHUNK_SIZE as f32;

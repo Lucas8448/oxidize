@@ -32,6 +32,7 @@ fn get_block_texture(block_id: u8, dx: i32, dy: i32, _dz: i32) -> (u32, f32) {
         blocks::BEDROCK => (block_textures::BEDROCK, 1.0),
         blocks::WATER => (block_textures::WATER, 0.7),
         blocks::SAND => (block_textures::SAND, 1.0),
+        blocks::GRAVEL => (block_textures::GRAVEL, 1.0),
         _ => (block_textures::MISSING, 1.0),
     }
 }

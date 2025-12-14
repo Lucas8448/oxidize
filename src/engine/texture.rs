@@ -192,14 +192,28 @@ pub fn generate_block_atlas() -> Texture {
         }
     }
     
-    // Tile 7: Debug/missing texture (magenta checkerboard)
+    // Tile 7: Gravel
+    for py in 0..TILE_SIZE {
+        for px in 0..TILE_SIZE {
+            let var = hash(px, py, 7) as i32 - 128;
+            let var2 = hash(px / 2, py / 2, 77) as i32 - 128;
+            // Mix of gray with slight brown tint
+            let base = 100 + var / 6 + var2 / 8;
+            let r = (base + 5).clamp(0, 255) as u8;
+            let g = base.clamp(0, 255) as u8;
+            let b = (base - 5).clamp(0, 255) as u8;
+            set_pixel(&mut data, 7, 0, px, py, r, g, b, 255);
+        }
+    }
+    
+    // Tile 8: Debug/missing texture (magenta checkerboard)
     for py in 0..TILE_SIZE {
         for px in 0..TILE_SIZE {
             let checker = ((px / 4) + (py / 4)) % 2 == 0;
             if checker {
-                set_pixel(&mut data, 7, 0, px, py, 255, 0, 255, 255);
+                set_pixel(&mut data, 8, 0, px, py, 255, 0, 255, 255);
             } else {
-                set_pixel(&mut data, 7, 0, px, py, 0, 0, 0, 255);
+                set_pixel(&mut data, 8, 0, px, py, 0, 0, 0, 255);
             }
         }
     }
@@ -233,5 +247,6 @@ pub mod block_textures {
     pub const BEDROCK: u32 = 4;
     pub const WATER: u32 = 5;
     pub const SAND: u32 = 6;
-    pub const MISSING: u32 = 7;
+    pub const GRAVEL: u32 = 7;
+    pub const MISSING: u32 = 8;
 }
