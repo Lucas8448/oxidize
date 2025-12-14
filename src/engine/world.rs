@@ -1,15 +1,34 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
 use crate::engine::block::Block;
 use crate::engine::chunk::{Chunk, ChunkPos, CHUNK_SIZE};
 use crate::engine::camera::Camera;
-use crate::engine::constants::{MAX_NEW_CHUNKS_PER_FRAME, DEFAULT_RENDER_DISTANCE};
+use crate::engine::constants::{MAX_NEW_CHUNKS_PER_FRAME, DEFAULT_RENDER_DISTANCE, MAX_MESH_REBUILDS_PER_FRAME, MAX_CHUNK_RECEIVES_PER_FRAME};
 use crate::engine::constants::{noise, blocks};
+
+/// Message sent to worker threads for chunk generation
+struct ChunkGenRequest {
+    pos: ChunkPos,
+}
+
+/// Result from worker threads with generated chunk data
+struct ChunkGenResult {
+    pos: ChunkPos,
+    blocks: Vec<Block>,
+}
 
 /// Manages the voxel world, including chunk loading and terrain generation.
 pub struct World {
     pub chunks: HashMap<(i32, i32, i32), Chunk>,
     pub render_distance: i32,
     pub last_player_chunk: (i32, i32, i32),
+    
+    // Threading for chunk generation
+    chunk_request_tx: Sender<ChunkGenRequest>,
+    chunk_result_rx: Receiver<ChunkGenResult>,
+    pending_chunks: HashSet<(i32, i32, i32)>,
+    _worker_handles: Vec<thread::JoinHandle<()>>,
 }
 
 impl Default for World {
@@ -20,10 +39,56 @@ impl Default for World {
 
 impl World {
     pub fn new() -> Self {
+        // Create channels for chunk generation
+        let (request_tx, request_rx) = mpsc::channel::<ChunkGenRequest>();
+        let (result_tx, result_rx) = mpsc::channel::<ChunkGenResult>();
+        
+        // Use crossbeam for multi-consumer request queue
+        let request_rx = std::sync::Arc::new(std::sync::Mutex::new(request_rx));
+        
+        // Spawn worker threads (use available parallelism minus 1 for main thread)
+        let num_workers = std::thread::available_parallelism()
+            .map(|p| p.get().saturating_sub(1).max(1))
+            .unwrap_or(2);
+        
+        let mut handles = Vec::with_capacity(num_workers);
+        
+        for _ in 0..num_workers {
+            let rx = request_rx.clone();
+            let tx = result_tx.clone();
+            
+            let handle = thread::spawn(move || {
+                loop {
+                    // Try to get a request
+                    let request = {
+                        let guard = rx.lock().unwrap();
+                        guard.recv()
+                    };
+                    
+                    match request {
+                        Ok(req) => {
+                            // Generate chunk terrain on worker thread
+                            let blocks = Self::generate_terrain_data(req.pos);
+                            let _ = tx.send(ChunkGenResult {
+                                pos: req.pos,
+                                blocks,
+                            });
+                        }
+                        Err(_) => break, // Channel closed, exit thread
+                    }
+                }
+            });
+            handles.push(handle);
+        }
+        
         Self {
             chunks: HashMap::new(),
             render_distance: DEFAULT_RENDER_DISTANCE,
-            last_player_chunk: (0, 0, 0),
+            last_player_chunk: (i32::MAX, i32::MAX, i32::MAX), // Force initial load
+            chunk_request_tx: request_tx,
+            chunk_result_rx: result_rx,
+            pending_chunks: HashSet::new(),
+            _worker_handles: handles,
         }
     }
 
@@ -52,26 +117,61 @@ impl World {
         let moved = current_chunk != self.last_player_chunk;
         if moved { self.last_player_chunk = current_chunk; }
 
-        let mut generated_this_frame = 0usize;
-        'gen: for cy in 0..1 {
-            for cz in (player_chunk_z - self.render_distance)..=(player_chunk_z + self.render_distance) {
-                for cx in (player_chunk_x - self.render_distance)..=(player_chunk_x + self.render_distance) {
-                    let key = (cx, cy, cz);
-                    if !self.chunks.contains_key(&key) {
-                        let pos = ChunkPos { x: cx, y: cy, z: cz };
-                        let mut chunk = Chunk::new(pos);
-                        self.generate_chunk_terrain(&mut chunk);
-                        self.chunks.insert(key, chunk);
-                        // Mark neighbors dirty so they rebuild without border faces
-                        let neighbor_offsets = [(-1,0,0),(1,0,0),(0,0,-1),(0,0,1),(0,-1,0),(0,1,0)];
-                        for (dx,dy,dz) in neighbor_offsets.iter() {
-                            if let Some(n) = self.chunks.get_mut(&(cx+dx, cy+dy, cz+dz)) { n.dirty = true; }
-                        }
-                        generated_this_frame += 1;
-                        if generated_this_frame >= MAX_NEW_CHUNKS_PER_FRAME { break 'gen; }
+        // Receive completed chunks from worker threads (limit per frame)
+        let mut received_this_frame = 0;
+        while let Ok(result) = self.chunk_result_rx.try_recv() {
+            let key = (result.pos.x, result.pos.y, result.pos.z);
+            self.pending_chunks.remove(&key);
+            
+            // Only add chunk if it's still in render distance
+            let dx = (result.pos.x - player_chunk_x).abs();
+            let dz = (result.pos.z - player_chunk_z).abs();
+            if dx <= self.render_distance && dz <= self.render_distance {
+                let mut chunk = Chunk::new(result.pos);
+                chunk.blocks = result.blocks;
+                chunk.dirty = true;
+                self.chunks.insert(key, chunk);
+                
+                // Mark neighbors dirty
+                let neighbor_offsets = [(-1,0,0),(1,0,0),(0,0,-1),(0,0,1),(0,-1,0),(0,1,0)];
+                for (dx,dy,dz) in neighbor_offsets.iter() {
+                    if let Some(n) = self.chunks.get_mut(&(key.0+dx, key.1+dy, key.2+dz)) { 
+                        n.dirty = true; 
                     }
                 }
             }
+            
+            received_this_frame += 1;
+            if received_this_frame >= MAX_CHUNK_RECEIVES_PER_FRAME { break; }
+        }
+
+        // Request new chunks (prioritize by distance to player)
+        let mut chunks_to_request: Vec<(i32, i32, i32, i32)> = Vec::new(); // (cx, cy, cz, dist_sq)
+        
+        for cy in 0..1 {
+            for cz in (player_chunk_z - self.render_distance)..=(player_chunk_z + self.render_distance) {
+                for cx in (player_chunk_x - self.render_distance)..=(player_chunk_x + self.render_distance) {
+                    let key = (cx, cy, cz);
+                    if !self.chunks.contains_key(&key) && !self.pending_chunks.contains(&key) {
+                        let dist_sq = (cx - player_chunk_x).pow(2) + (cz - player_chunk_z).pow(2);
+                        chunks_to_request.push((cx, cy, cz, dist_sq));
+                    }
+                }
+            }
+        }
+        
+        // Sort by distance (closest first)
+        chunks_to_request.sort_by_key(|&(_, _, _, dist)| dist);
+        
+        // Send requests (limit per frame)
+        for (i, (cx, cy, cz, _)) in chunks_to_request.into_iter().enumerate() {
+            if i >= MAX_NEW_CHUNKS_PER_FRAME { break; }
+            
+            let key = (cx, cy, cz);
+            self.pending_chunks.insert(key);
+            let _ = self.chunk_request_tx.send(ChunkGenRequest {
+                pos: ChunkPos { x: cx, y: cy, z: cz },
+            });
         }
 
         if moved {
@@ -85,19 +185,28 @@ impl World {
                 .cloned()
                 .collect();
             for key in to_remove { self.chunks.remove(&key); }
+            
+            // Also cancel pending chunks that are now out of range
+            self.pending_chunks.retain(|(cx, _cy, cz)| {
+                let dx = (cx - player_chunk_x).abs();
+                let dz = (cz - player_chunk_z).abs();
+                dx <= unload_distance && dz <= unload_distance
+            });
         }
     }
 
-    fn generate_chunk_terrain(&self, chunk: &mut Chunk) {
-    use ::noise::{Perlin, NoiseFn};
+    /// Generate terrain data on a worker thread (no Chunk creation, just block data)
+    fn generate_terrain_data(pos: ChunkPos) -> Vec<Block> {
+        use ::noise::{Perlin, NoiseFn};
         let perlin = Perlin::new(noise::SEED);
-
-        let base_global_y = chunk.pos.y * CHUNK_SIZE as i32;
+        
+        let mut block_data = vec![Block::Air; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
+        let base_global_y = pos.y * CHUNK_SIZE as i32;
 
         for z in 0..CHUNK_SIZE {
             for x in 0..CHUNK_SIZE {
-                let global_x = chunk.pos.x * CHUNK_SIZE as i32 + x as i32;
-                let global_z = chunk.pos.z * CHUNK_SIZE as i32 + z as i32;
+                let global_x = pos.x * CHUNK_SIZE as i32 + x as i32;
+                let global_z = pos.z * CHUNK_SIZE as i32 + z as i32;
 
                 let mut frequency = noise::BASE_SCALE;
                 let mut amplitude = 1.0f32;
@@ -107,7 +216,7 @@ impl World {
                     let n = perlin.get([
                         global_x as f64 * frequency,
                         global_z as f64 * frequency,
-                    ]) as f32; // n in [-1,1]
+                    ]) as f32;
                     total += n * amplitude;
                     amp_norm += amplitude;
                     amplitude *= noise::PERSISTENCE;
@@ -117,24 +226,56 @@ impl World {
                 let shaped = normalized.powf(noise::HEIGHT_EXPONENT);
                 let height_world = (shaped * noise::MAX_HEIGHT) as i32;
 
+                // Determine if this is a beach/water area based on height
+                let is_near_water = height_world <= noise::WATER_LEVEL + 2;
+                let is_underwater = height_world < noise::WATER_LEVEL;
+
                 if height_world >= base_global_y {
                     let local_surface = (height_world - base_global_y).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
                     for y in 0..=local_surface {
                         let world_y = base_global_y + y as i32;
                         let block_id = if y == local_surface {
-                            blocks::GRASS
+                            if is_underwater {
+                                blocks::SAND
+                            } else if is_near_water {
+                                blocks::SAND
+                            } else {
+                                blocks::GRASS
+                            }
                         } else if local_surface - y <= noise::DIRT_DEPTH {
-                            blocks::DIRT
+                            if is_near_water {
+                                blocks::SAND
+                            } else {
+                                blocks::DIRT
+                            }
                         } else if world_y <= 2 {
                             blocks::BEDROCK
                         } else {
                             blocks::STONE
                         };
-                        chunk.set_block(x, y, z, Block::Solid(block_id));
+                        let idx = (y * CHUNK_SIZE * CHUNK_SIZE) + (z * CHUNK_SIZE) + x;
+                        block_data[idx] = Block::Solid(block_id);
+                    }
+                }
+
+                // Fill water above terrain up to water level
+                let water_start = if height_world >= base_global_y {
+                    (height_world - base_global_y + 1).max(0) as usize
+                } else {
+                    0
+                };
+                let water_end = (noise::WATER_LEVEL - base_global_y).clamp(0, CHUNK_SIZE as i32 - 1) as usize;
+                
+                if water_end >= water_start {
+                    for y in water_start..=water_end {
+                        let idx = (y * CHUNK_SIZE * CHUNK_SIZE) + (z * CHUNK_SIZE) + x;
+                        block_data[idx] = Block::Solid(blocks::WATER);
                     }
                 }
             }
         }
+        
+        block_data
     }
 
     pub fn render_chunks(&mut self, camera: &Camera, shader: &crate::engine::shader::ShaderProgram) {
@@ -176,13 +317,30 @@ impl World {
 
     /// Rebuilds meshes for all chunks marked as dirty.
     /// Uses a two-pass approach to avoid unsafe aliasing: first collect neighbor data, then rebuild.
+    /// Limits rebuilds per frame to prevent lag spikes.
     pub fn rebuild_dirty(&mut self) {
-        let dirty_keys: Vec<(i32, i32, i32)> = self.chunks
+        let cam_chunk = self.last_player_chunk;
+        
+        // Collect dirty chunks and sort by distance to camera (closest first)
+        let mut dirty_keys: Vec<(i32, i32, i32)> = self.chunks
             .iter()
             .filter_map(|(k, c)| if c.dirty { Some(*k) } else { None })
             .collect();
+        
+        // Sort by distance to player chunk (prioritize visible chunks)
+        dirty_keys.sort_by_key(|&(cx, cy, cz)| {
+            let dx = cx - cam_chunk.0;
+            let dy = cy - cam_chunk.1;
+            let dz = cz - cam_chunk.2;
+            dx * dx + dy * dy + dz * dz
+        });
 
+        let mut rebuilt_count = 0;
         for key in dirty_keys {
+            if rebuilt_count >= MAX_MESH_REBUILDS_PER_FRAME {
+                break;
+            }
+            
             // Pre-fetch neighbor chunk block data to avoid unsafe pointer aliasing
             let neighbor_blocks = self.collect_neighbor_blocks(key);
 
@@ -195,6 +353,7 @@ impl World {
                 chunk.rebuild_mesh(|lx, ly, lz| {
                     Self::get_block_from_neighbors_with_blocks(key, lx, ly, lz, &neighbor_blocks, &chunk_blocks)
                 });
+                rebuilt_count += 1;
             }
         }
     }

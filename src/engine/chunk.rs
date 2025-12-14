@@ -109,6 +109,18 @@ impl Chunk {
                                         (0.62 + offset, 0.60 + offset, 0.58 + offset)
                                     }
                                     blocks::BEDROCK => (0.15, 0.15, 0.18),
+                                    blocks::WATER => {
+                                        // Blue water with slight variation
+                                        let var = ((world_x.wrapping_mul(12345) ^ world_z.wrapping_mul(67890)) & 0xFF) as f32 / 255.0;
+                                        let offset = (var - 0.5) * 0.05;
+                                        (0.2 + offset, 0.4 + offset, 0.8 + offset * 0.5)
+                                    }
+                                    blocks::SAND => {
+                                        // Sandy yellow/tan with variation
+                                        let var = ((world_x.wrapping_mul(98765) ^ world_z.wrapping_mul(43210)) & 0xFF) as f32 / 255.0;
+                                        let offset = (var - 0.5) * 0.08;
+                                        (0.85 + offset, 0.75 + offset, 0.55 + offset * 0.5)
+                                    }
                                     _ => (1.0, 0.0, 1.0), // debug magenta
                                 }; [r as f32 * shade_factor, g as f32 * shade_factor, b as f32 * shade_factor]
                             }

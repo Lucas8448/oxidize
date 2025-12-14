@@ -14,8 +14,10 @@ pub const CAMERA_SPRINT_MULTIPLIER: f32 = 2.5;
 pub const CAMERA_MOUSE_SENSITIVITY: f32 = 0.0025;
 
 /// Chunk loading settings
-pub const MAX_NEW_CHUNKS_PER_FRAME: usize = 12;
+pub const MAX_NEW_CHUNKS_PER_FRAME: usize = 16;
 pub const DEFAULT_RENDER_DISTANCE: i32 = 6;
+pub const MAX_MESH_REBUILDS_PER_FRAME: usize = 4;
+pub const MAX_CHUNK_RECEIVES_PER_FRAME: usize = 8;
 
 /// Terrain generation noise parameters
 pub mod noise {
@@ -27,6 +29,7 @@ pub mod noise {
     pub const MAX_HEIGHT: f32 = 38.0;
     pub const HEIGHT_EXPONENT: f32 = 1.2;
     pub const DIRT_DEPTH: usize = 3;
+    pub const WATER_LEVEL: i32 = 12; // Sea level for water generation
 }
 
 /// Block type identifiers
