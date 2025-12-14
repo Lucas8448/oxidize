@@ -1,6 +1,7 @@
 use crate::engine::block::Block;
 use crate::engine::mesh::Mesh;
 use crate::engine::constants::blocks;
+use crate::engine::texture::{get_tile_uvs, block_textures};
 
 pub const CHUNK_SIZE: usize = 32;
 
@@ -11,6 +12,28 @@ fn index(x: usize, y: usize, z: usize) -> usize { (y * CHUNK_SIZE * CHUNK_SIZE) 
 #[inline(always)]
 fn is_transparent(block: Block) -> bool {
     matches!(block, Block::Solid(blocks::WATER))
+}
+
+/// Get the texture tile index for a block face
+/// Returns (tile_index, alpha) for the given block and face direction
+fn get_block_texture(block_id: u8, dx: i32, dy: i32, _dz: i32) -> (u32, f32) {
+    match block_id {
+        blocks::GRASS => {
+            if dy > 0 {
+                (block_textures::GRASS_TOP, 1.0)  // Top face
+            } else if dy < 0 {
+                (block_textures::DIRT, 1.0)       // Bottom face
+            } else {
+                (block_textures::GRASS_SIDE, 1.0) // Side faces
+            }
+        }
+        blocks::DIRT => (block_textures::DIRT, 1.0),
+        blocks::STONE => (block_textures::STONE, 1.0),
+        blocks::BEDROCK => (block_textures::BEDROCK, 1.0),
+        blocks::WATER => (block_textures::WATER, 0.7),
+        blocks::SAND => (block_textures::SAND, 1.0),
+        _ => (block_textures::MISSING, 1.0),
+    }
 }
 
 /// Position of a chunk in chunk coordinates.
@@ -31,6 +54,7 @@ impl Chunk {
         Self { pos, blocks: vec![Block::Air; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE], mesh: None, transparent_mesh: None, dirty: true }
     }
 
+    #[allow(dead_code)]
     pub fn set_block(&mut self, x: usize, y: usize, z: usize, b: Block) {
         self.blocks[index(x, y, z)] = b; self.dirty = true;
     }
@@ -38,181 +62,162 @@ impl Chunk {
 
     pub fn rebuild_mesh<F: Fn(i32, i32, i32) -> Block>(&mut self, neighbor_block: F) {
         if !self.dirty { return; }
-        // Estimate: worst case ~6 faces per block, 2 triangles per face, 10 floats per vertex
-        // For a typical chunk with ~50% solid, surface area is much less
-        let estimated_verts = CHUNK_SIZE * CHUNK_SIZE * 6 * 2 * 3 * 10;
+        // Estimate: worst case ~6 faces per block, 2 triangles per face, 12 floats per vertex
+        let estimated_verts = CHUNK_SIZE * CHUNK_SIZE * 6 * 2 * 3 * 12;
         let mut opaque_vertices: Vec<f32> = Vec::with_capacity(estimated_verts);
         let mut transparent_vertices: Vec<f32> = Vec::with_capacity(estimated_verts / 4);
+        
+        // Direction data: (dx, dy, dz, shade_factor, normal)
         let directions = [
-            (-1, 0, 0, 1.0,  [ -1.0,  0.0,  0.0 ]),
-            ( 1, 0, 0, 1.0,  [  1.0,  0.0,  0.0 ]),
-            ( 0,-1, 0, 0.96, [  0.0, -1.0,  0.0 ]),
-            ( 0, 1, 0, 1.04, [  0.0,  1.0,  0.0 ]),
-            ( 0, 0,-1, 1.0,  [  0.0,  0.0, -1.0 ]),
-            ( 0, 0, 1, 1.0,  [  0.0,  0.0,  1.0 ])
+            (-1, 0, 0, 0.7,  [ -1.0,  0.0,  0.0 ]),  // Left
+            ( 1, 0, 0, 0.7,  [  1.0,  0.0,  0.0 ]),  // Right
+            ( 0,-1, 0, 0.5,  [  0.0, -1.0,  0.0 ]),  // Bottom
+            ( 0, 1, 0, 1.0,  [  0.0,  1.0,  0.0 ]),  // Top
+            ( 0, 0,-1, 0.8,  [  0.0,  0.0, -1.0 ]),  // Back
+            ( 0, 0, 1, 0.8,  [  0.0,  0.0,  1.0 ])   // Front
         ];
         
-        // Pre-allocate buffers outside loops to reduce allocations
-        let mut mask = vec![None::<Block>; CHUNK_SIZE * CHUNK_SIZE];
-        let mut visited = vec![false; CHUNK_SIZE * CHUNK_SIZE];
-        
-        for &(dx, dy, dz, shade_factor, normal_vec) in &directions {
-            let (u_axis, v_axis) = if dx != 0 { (1, 2) } else if dy != 0 { (0, 2) } else { (0, 1) };
-            let w_axis = 3 - u_axis - v_axis;
-            for w in 0..(CHUNK_SIZE as i32) {
-                // Clear buffers instead of reallocating
-                mask.fill(None);
-                for v in 0..CHUNK_SIZE {
-                    for u in 0..CHUNK_SIZE {
-                        let mut pos = [0i32; 3];
-                        pos[u_axis] = u as i32;
-                        pos[v_axis] = v as i32; 
-                        pos[w_axis] = w;
-                        let (x, y, z) = (pos[0], pos[1], pos[2]);
-                        let current = if x >= 0 && x < CHUNK_SIZE as i32 && y >= 0 && y < CHUNK_SIZE as i32 && z >= 0 && z < CHUNK_SIZE as i32 {
-                            self.get_block(x as usize, y as usize, z as usize)
-                        } else { Block::Air };
-                        let neighbor = neighbor_block(x + dx, y + dy, z + dz);
+        // Iterate through all blocks
+        for y in 0..CHUNK_SIZE {
+            for z in 0..CHUNK_SIZE {
+                for x in 0..CHUNK_SIZE {
+                    let current = self.get_block(x, y, z);
+                    if current.is_air() { continue; }
+                    
+                    let block_id = match current {
+                        Block::Solid(id) => id,
+                        Block::Air => continue,
+                    };
+                    
+                    let current_transparent = is_transparent(current);
+                    
+                    // Check each face
+                    for &(dx, dy, dz, shade_factor, normal_vec) in &directions {
+                        let nx = x as i32 + dx;
+                        let ny = y as i32 + dy;
+                        let nz = z as i32 + dz;
                         
-                        // For transparent blocks (water), show face if neighbor is air OR a different block type
-                        // For opaque blocks, show face if neighbor is air or transparent
-                        let current_transparent = is_transparent(current);
+                        let neighbor = neighbor_block(nx, ny, nz);
                         let neighbor_transparent = is_transparent(neighbor);
                         
-                        let should_show = if current.is_air() {
-                            false
-                        } else if current_transparent {
-                            // Transparent block: show face if neighbor is air (not if neighbor is same transparent type)
+                        // Determine if we should show this face
+                        let should_show = if current_transparent {
                             neighbor.is_air()
                         } else {
-                            // Opaque block: show face if neighbor is air or transparent
                             neighbor.is_air() || neighbor_transparent
                         };
                         
-                        if should_show {
-                            mask[v * CHUNK_SIZE + u] = Some(current);
-                        }
-                    }
-                }
-                visited.fill(false);
-                for v in 0..CHUNK_SIZE {
-                    for u in 0..CHUNK_SIZE {
-                        let idx = v * CHUNK_SIZE + u;
-                        if visited[idx] || mask[idx].is_none() { continue; }
-                        let block_type = mask[idx].unwrap();
-                        let block_transparent = is_transparent(block_type);
-                        let mut sample = [0i32;3];
-                        sample[u_axis] = u as i32;
-                        sample[v_axis] = v as i32;
-                        sample[w_axis] = w;
+                        if !should_show { continue; }
                         
-                        // Calculate world position for color variation
-                        let world_x = self.pos.x * CHUNK_SIZE as i32 + sample[0];
-                        let world_z = self.pos.z * CHUNK_SIZE as i32 + sample[2];
+                        // Get texture and alpha for this face
+                        let (tile_idx, alpha) = get_block_texture(block_id, dx, dy, dz);
+                        let (u_min, v_min, u_max, v_max) = get_tile_uvs(tile_idx);
                         
-                        // Color based on block id and face direction (simple palette)
-                        // Now returns (r, g, b, a) for alpha support
-                        let color = match block_type {
-                            Block::Solid(id) => {
-                                let (r,g,b,a) = match id {
-                                    blocks::GRASS => {
-                                        // Top face bright green with subtle variation, sides earthy
-                                        if dy > 0 {
-                                            // Add subtle color variation based on position
-                                            let variation = ((world_x.wrapping_mul(374761393) ^ world_z.wrapping_mul(668265263)) & 0xFF) as f32 / 255.0;
-                                            let var_offset = (variation - 0.5) * 0.08;
-                                            (0.35 + var_offset * 0.5, 0.75 + var_offset, 0.30 - var_offset * 0.3, 1.0)
-                                        } else { 
-                                            (0.40, 0.55, 0.25, 1.0) 
-                                        }
-                                    }
-                                    blocks::DIRT => (0.55, 0.38, 0.25, 1.0),
-                                    blocks::STONE => {
-                                        // Subtle variation for stone
-                                        let world_y = self.pos.y * CHUNK_SIZE as i32 + sample[1];
-                                        let var = ((world_x.wrapping_mul(1664525) ^ world_z.wrapping_mul(1013904223) ^ world_y.wrapping_mul(214013)) & 0xFF) as f32 / 255.0;
-                                        let offset = (var - 0.5) * 0.06;
-                                        (0.62 + offset, 0.60 + offset, 0.58 + offset, 1.0)
-                                    }
-                                    blocks::BEDROCK => (0.15, 0.15, 0.18, 1.0),
-                                    blocks::WATER => {
-                                        // Blue water with slight variation - semi-transparent
-                                        let var = ((world_x.wrapping_mul(12345) ^ world_z.wrapping_mul(67890)) & 0xFF) as f32 / 255.0;
-                                        let offset = (var - 0.5) * 0.05;
-                                        (0.2 + offset, 0.5 + offset, 0.9 + offset * 0.5, 0.6)
-                                    }
-                                    blocks::SAND => {
-                                        // Sandy yellow/tan with variation
-                                        let var = ((world_x.wrapping_mul(98765) ^ world_z.wrapping_mul(43210)) & 0xFF) as f32 / 255.0;
-                                        let offset = (var - 0.5) * 0.08;
-                                        (0.85 + offset, 0.75 + offset, 0.55 + offset * 0.5, 1.0)
-                                    }
-                                    _ => (1.0, 0.0, 1.0, 1.0), // debug magenta
-                                }; [r as f32 * shade_factor, g as f32 * shade_factor, b as f32 * shade_factor, a]
+                        // Calculate vertex positions for this face
+                        let fx = x as f32;
+                        let fy = y as f32;
+                        let fz = z as f32;
+                        
+                        // Define face vertices based on direction
+                        // For CCW front-face winding with back-face culling:
+                        // When looking at face from outside, vertices go counter-clockwise
+                        let (corners, uvs) = match (dx, dy, dz) {
+                            (-1, 0, 0) => {
+                                // Left face (-X): looking from -X toward +X, CCW is: bottom-back, bottom-front, top-front, top-back
+                                ([
+                                    [fx, fy, fz],           // bottom-back
+                                    [fx, fy, fz + 1.0],     // bottom-front
+                                    [fx, fy + 1.0, fz + 1.0], // top-front
+                                    [fx, fy + 1.0, fz],     // top-back
+                                ], [
+                                    [u_max, v_max], [u_min, v_max], [u_min, v_min], [u_max, v_min],
+                                ])
                             }
-                            Block::Air => [0.0, 0.0, 0.0, 0.0],
+                            (1, 0, 0) => {
+                                // Right face (+X): looking from +X toward -X, CCW is: bottom-front, bottom-back, top-back, top-front
+                                ([
+                                    [fx + 1.0, fy, fz + 1.0],     // bottom-front
+                                    [fx + 1.0, fy, fz],           // bottom-back
+                                    [fx + 1.0, fy + 1.0, fz],     // top-back
+                                    [fx + 1.0, fy + 1.0, fz + 1.0], // top-front
+                                ], [
+                                    [u_max, v_max], [u_min, v_max], [u_min, v_min], [u_max, v_min],
+                                ])
+                            }
+                            (0, -1, 0) => {
+                                // Bottom face (-Y): looking from -Y toward +Y, CCW is: back-left, back-right, front-right, front-left
+                                ([
+                                    [fx, fy, fz],             // back-left
+                                    [fx + 1.0, fy, fz],       // back-right
+                                    [fx + 1.0, fy, fz + 1.0], // front-right
+                                    [fx, fy, fz + 1.0],       // front-left
+                                ], [
+                                    [u_min, v_min], [u_max, v_min], [u_max, v_max], [u_min, v_max],
+                                ])
+                            }
+                            (0, 1, 0) => {
+                                // Top face (+Y): looking from +Y toward -Y, CCW is: front-left, front-right, back-right, back-left
+                                ([
+                                    [fx, fy + 1.0, fz + 1.0],       // front-left
+                                    [fx + 1.0, fy + 1.0, fz + 1.0], // front-right
+                                    [fx + 1.0, fy + 1.0, fz],       // back-right
+                                    [fx, fy + 1.0, fz],             // back-left
+                                ], [
+                                    [u_min, v_max], [u_max, v_max], [u_max, v_min], [u_min, v_min],
+                                ])
+                            }
+                            (0, 0, -1) => {
+                                // Back face (-Z): looking from -Z toward +Z, CCW is: bottom-right, bottom-left, top-left, top-right
+                                ([
+                                    [fx + 1.0, fy, fz],       // bottom-right
+                                    [fx, fy, fz],             // bottom-left
+                                    [fx, fy + 1.0, fz],       // top-left
+                                    [fx + 1.0, fy + 1.0, fz], // top-right
+                                ], [
+                                    [u_max, v_max], [u_min, v_max], [u_min, v_min], [u_max, v_min],
+                                ])
+                            }
+                            (0, 0, 1) => {
+                                // Front face (+Z): looking from +Z toward -Z, CCW is: bottom-left, bottom-right, top-right, top-left
+                                ([
+                                    [fx, fy, fz + 1.0],             // bottom-left
+                                    [fx + 1.0, fy, fz + 1.0],       // bottom-right
+                                    [fx + 1.0, fy + 1.0, fz + 1.0], // top-right
+                                    [fx, fy + 1.0, fz + 1.0],       // top-left
+                                ], [
+                                    [u_min, v_max], [u_max, v_max], [u_max, v_min], [u_min, v_min],
+                                ])
+                            }
+                            _ => continue,
                         };
-                        let (c1, c2, c3, c4) = (color[0], color[1], color[2], color[3]);
-                        let mut width = 1;
-                        while u + width < CHUNK_SIZE {
-                            let next_idx = v * CHUNK_SIZE + (u + width);
-                            if visited[next_idx] || mask[next_idx] != Some(block_type) { break; }
-                            width += 1;
-                        }
-                        let mut height = 1;
-                        'height_loop: while v + height < CHUNK_SIZE {
-                            for u_offset in 0..width {
-                                let check_idx = (v + height) * CHUNK_SIZE + (u + u_offset);
-                                if visited[check_idx] || mask[check_idx] != Some(block_type) {
-                                    break 'height_loop;
-                                }
-                            }
-                            height += 1;
-                        }
-                        for v_offset in 0..height {
-                            for u_offset in 0..width {
-                                visited[(v + v_offset) * CHUNK_SIZE + (u + u_offset)] = true;
-                            }
-                        }
-                        let mut corners = [[0.0f32; 3]; 4];
-                        let corner_offsets = [(0, 0), (1, 0), (1, 1), (0, 1)];
-                        for (i, corner) in corners.iter_mut().enumerate() {
-                            let (u_off, v_off) = corner_offsets[i];
-                            let uu = if u_off == 1 { width } else { 0 };
-                            let vv = if v_off == 1 { height } else { 0 };
-                            corner[u_axis] = (u + uu) as f32;
-                            corner[v_axis] = (v + vv) as f32;
-                            corner[w_axis] = w as f32;
-                            if dx > 0 { corner[0] += 1.0; }
-                            if dy > 0 { corner[1] += 1.0; }
-                            if dz > 0 { corner[2] += 1.0; }
-                        }
-                        
-                        // Choose which vertex buffer to use
-                        let vertices = if block_transparent { &mut transparent_vertices } else { &mut opaque_vertices };
                         
                         let (nx, ny, nz) = (normal_vec[0], normal_vec[1], normal_vec[2]);
-                        let emit_triangle = |v: &mut Vec<f32>, a: [f32;3], b: [f32;3], c: [f32;3], nx: f32, ny: f32, nz: f32| {
-                            v.extend_from_slice(&[a[0],a[1],a[2], nx,ny,nz, c1,c2,c3,c4]);
-                            v.extend_from_slice(&[b[0],b[1],b[2], nx,ny,nz, c1,c2,c3,c4]);
-                            v.extend_from_slice(&[c[0],c[1],c[2], nx,ny,nz, c1,c2,c3,c4]);
+                        let shade = shade_factor as f32;
+                        
+                        // Choose which vertex buffer
+                        let vertices = if current_transparent { &mut transparent_vertices } else { &mut opaque_vertices };
+                        
+                        // Emit vertex: pos(3) + normal(3) + uv(2) + color(4) = 12 floats
+                        let emit_vertex = |v: &mut Vec<f32>, pos: [f32; 3], uv: [f32; 2]| {
+                            v.extend_from_slice(&[pos[0], pos[1], pos[2]]);
+                            v.extend_from_slice(&[nx, ny, nz]);
+                            v.extend_from_slice(&[uv[0], uv[1]]);
+                            v.extend_from_slice(&[shade, shade, shade, alpha]);
                         };
-                        // Determine winding order based on face direction
-                        // For CCW front-facing triangles with GL_BACK culling:
-                        // Positive X, negative Y, positive Z need one winding
-                        // Negative X, positive Y, negative Z need the opposite
-                        let flip = dx < 0 || dy > 0 || dz < 0;
-                        if flip {
-                            emit_triangle(vertices, corners[0], corners[2], corners[1], nx,ny,nz);
-                            emit_triangle(vertices, corners[0], corners[3], corners[2], nx,ny,nz);
-                        } else {
-                            emit_triangle(vertices, corners[0], corners[1], corners[2], nx,ny,nz);
-                            emit_triangle(vertices, corners[0], corners[2], corners[3], nx,ny,nz);
-                        }
+                        
+                        // Two triangles: 0-1-2 and 0-2-3 (CCW winding)
+                        emit_vertex(vertices, corners[0], uvs[0]);
+                        emit_vertex(vertices, corners[1], uvs[1]);
+                        emit_vertex(vertices, corners[2], uvs[2]);
+                        
+                        emit_vertex(vertices, corners[0], uvs[0]);
+                        emit_vertex(vertices, corners[2], uvs[2]);
+                        emit_vertex(vertices, corners[3], uvs[3]);
                     }
                 }
             }
         }
+        
         self.mesh = if opaque_vertices.is_empty() { None } else { Some(Mesh::from_vertices(&opaque_vertices)) };
         self.transparent_mesh = if transparent_vertices.is_empty() { None } else { Some(Mesh::from_vertices(&transparent_vertices)) };
         self.dirty = false;

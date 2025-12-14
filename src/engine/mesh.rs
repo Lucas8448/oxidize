@@ -3,6 +3,7 @@ use std::mem;
 use std::ptr;
 
 /// GPU mesh with vertex array object and buffer.
+/// Vertex format: pos(3) + normal(3) + uv(2) + color(4) = 12 floats per vertex
 pub struct Mesh { pub vao: u32, vbo: u32, count: i32 }
 
 impl Mesh {
@@ -13,7 +14,7 @@ impl Mesh {
     }
 
     pub fn from_vertices(vertices: &[f32]) -> Self {
-        assert!(vertices.len().is_multiple_of(10), "vertex slice must be multiple of 10 (pos3+normal3+color4)");
+        assert!(vertices.len().is_multiple_of(12), "vertex slice must be multiple of 12 (pos3+normal3+uv2+color4)");
         unsafe {
             let (mut vbo, mut vao) = (0, 0);
             gl::GenVertexArrays(1, &mut vao);
@@ -26,14 +27,20 @@ impl Mesh {
                 vertices.as_ptr() as *const _,
                 gl::STATIC_DRAW,
             );
-            let stride = (10 * mem::size_of::<f32>()) as GLsizei;
+            let stride = (12 * mem::size_of::<f32>()) as GLsizei;
+            // Position: location 0
             gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, stride, ptr::null());
             gl::EnableVertexAttribArray(0);
+            // Normal: location 1
             gl::VertexAttribPointer(1, 3, gl::FLOAT, gl::FALSE, stride, (3 * mem::size_of::<f32>()) as *const _);
             gl::EnableVertexAttribArray(1);
-            gl::VertexAttribPointer(2, 4, gl::FLOAT, gl::FALSE, stride, (6 * mem::size_of::<f32>()) as *const _);
+            // UV: location 2
+            gl::VertexAttribPointer(2, 2, gl::FLOAT, gl::FALSE, stride, (6 * mem::size_of::<f32>()) as *const _);
             gl::EnableVertexAttribArray(2);
-            Mesh { vao, vbo, count: (vertices.len() / 10) as i32 }
+            // Color: location 3
+            gl::VertexAttribPointer(3, 4, gl::FLOAT, gl::FALSE, stride, (8 * mem::size_of::<f32>()) as *const _);
+            gl::EnableVertexAttribArray(3);
+            Mesh { vao, vbo, count: (vertices.len() / 12) as i32 }
         }
     }
 

@@ -36,6 +36,11 @@ impl ShaderProgram {
         let loc = gl::GetUniformLocation(self.id, cname.as_ptr());
         gl::Uniform3f(loc, v.x, v.y, v.z);
     }
+    pub unsafe fn set_int(&self, name: &str, value: i32) {
+        let cname = std::ffi::CString::new(name).unwrap();
+        let loc = gl::GetUniformLocation(self.id, cname.as_ptr());
+        gl::Uniform1i(loc, value);
+    }
 }
 
 impl Drop for ShaderProgram {

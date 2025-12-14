@@ -10,3 +10,4 @@ pub mod chunk;
 pub mod world;
 pub mod shader_sources;
 pub mod constants;
+pub mod texture;
